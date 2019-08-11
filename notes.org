@@ -1,0 +1,6 @@
+* Todo:
+	- Everything.
+
+* Notes:
+	- Parallelizing is stupidly easy. Each entity only interacts with other entities in it's immediate surroundings. So as long as the entities processed in separate threads are not adjascent on the game world grid, we don't need to lock anything. This SHOULD mean that we can split the board horizontally and process each from top to bottom, so that by the time the top section has reached its bottom row, the 2nd section has finished processing its top row, and we don't get intersectional races either!
+

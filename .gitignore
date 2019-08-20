@@ -4,6 +4,7 @@
 \#*\#
 *.log
 **/*.log
+.idea
 
 /target/
 Cargo.lock

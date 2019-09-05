@@ -1,5 +1,6 @@
+use crate::entities::{Invader, Missile, Player, Entity};
 use crate::map::Map;
-use crate::{Coord, Dir, Tile};
+use crate::utils::Coord;
 use failure::Error;
 use std::clone::Clone;
 use std::io::{stdout, Stdout, Write};
@@ -10,87 +11,72 @@ use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::{IntoRawMode, RawTerminal};
 
-enum GameEvent {
-    Quit,
+pub enum CtrlEvent {
+    Left,
+    Right,
+    Shoot,
+}
+
+pub struct GameState {
+    pub events: Vec<CtrlEvent>,
+    pub map_dimensions: Coord,
 }
 
 pub struct Game<'a> {
+    // IO stuff
     out: RawTerminal<Stdout>,
     input: &'a mut termion::AsyncReader,
-    margins: (u16, u16),
-    map: Map,
-    player: Coord,
-    entities: Vec<Coord>,
+
+    // Game Logic stuff
+    is_running: bool,
     frame_counter: usize,
+    map_size: Coord,
+
+    // Entities
+    player: Player,
+    invaders: Vec<Invader>,
+    missiles: Vec<Missile>,
+}
+
+impl GameState {
+    fn new(dimensions: Coord) -> Self {
+        Self {
+            events: Vec::new(),
+            map_dimensions: dimensions,
+        }
+    }
 }
 
 impl<'a> Game<'a> {
-    pub fn init(map: Map, input: &'a mut termion::AsyncReader) -> Result<Self, Error> {
-        let out = stdout().into_raw_mode().unwrap();
-
-        let margins = if let Ok((w, h)) = termion::terminal_size() {
-            ((w - map.width as u16) / 2, (h - map.height as u16) / 2)
-        } else {
-            (0, 0)
-        };
-
-        let mut entities = Vec::new();
-        let mut player = None;
-
-        for y in 0..map.height {
-            for x in 0..map.width {
-                match map[(x, y)] {
-                    Tile::Invader(_) | Tile::Missile(_) => entities.push((x, y)),
-                    Tile::Player => {
-                        if player.is_none() {
-                            player = Some((x, y));
-                        } else {
-                            let msg =
-                                format!("Too many players in map: {:?} and {:?}", player, (x, y));
-                            return Err(failure::err_msg(msg));
-                        }
-                    }
-                    _ => (),
-                }
-            }
-        }
-
-        let frame_counter = 0;
-
-        if let Some(player) = player {
-            Ok(Game {
-                frame_counter,
-                input,
-                out,
-                margins,
-                map,
-                player,
-                entities,
-            })
-        } else {
-            return Err(failure::err_msg("No player defined in map."));
+    pub fn init(input: &'a mut termion::AsyncReader) -> Self {
+        // TODO move to level file
+        let map_size = Coord(45, 15);
+        let player_pos = Coord(map_size.0 / 2, map_size.1 - 1);
+        
+        Game {
+            out: stdout().into_raw_mode().unwrap(),
+            input,
+            map_size,
+            is_running: false,
+            frame_counter: 0,
+            player: Player::new(player_pos),
+            invaders: Vec::new(),
+            missiles: Vec::new(),
         }
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
-        let mut run = true;
+        let mut game_state = GameState::new(self.map_size);
+        self.is_running = true;
 
-        while run {
+        while self.is_running {
             // Timer!
             let now = time::Instant::now();
 
-            match self.handle_input() {
-                Some(GameEvent::Quit) => run = false,
-                _ => (),
-            }
+            game_state.events.clear();
 
-            // Process entities
-            match self.process_entities() {
-                Some(GameEvent::Quit) => run = false,
-                _ => (),
-            }
-
-            // Draw frame
+            self.handle_input(&mut game_state.events);
+            self.process_entities(&game_state);
             self.draw();
 
             // TODO support separate DEBUG mode?
@@ -108,22 +94,21 @@ impl<'a> Game<'a> {
         Ok(())
     }
 
-    fn handle_input(&mut self) -> Option<GameEvent> {
+    fn handle_input(&mut self, events: &mut Vec<CtrlEvent>) {
         use std::io::Error;
         use termion::event::Event;
 
-        let mut input_event = None;
-        let events = self.input.events().collect::<Vec<Result<Event, Error>>>();
+        let input_events = self.input.events().collect::<Vec<Result<Event, Error>>>();
 
-        for event in events {
+        for event in input_events {
             match event {
                 Ok(event) => match event {
                     Event::Key(c) => match c {
-                        Key::Char('q') => input_event = Some(GameEvent::Quit),
-                        Key::Ctrl('c') => input_event = Some(GameEvent::Quit),
-                        Key::Left => self.move_player(Dir::Left),
-                        Key::Right => self.move_player(Dir::Right),
-                        Key::Char(' ') => self.fire((self.player.0, self.player.1 - 1), Dir::Up),
+                        Key::Char('q') => self.is_running = false,
+                        Key::Ctrl('c') => self.is_running = false,
+                        Key::Left => events.push(CtrlEvent::Left),
+                        Key::Right => events.push(CtrlEvent::Right),
+                        Key::Char(' ') => events.push(CtrlEvent::Shoot),
                         _ => (),
                     },
                     _ => (),
@@ -131,119 +116,42 @@ impl<'a> Game<'a> {
                 Err(e) => error!("Stdin error: {}", e.to_string()),
             }
         }
-
-        input_event
     }
 
-    fn process_entities(&mut self) -> Option<GameEvent> {
-        let entities: &mut Vec<Coord> = &mut self.entities;
-        let map: &mut Map = &mut self.map;
+    fn process_entities(&mut self, game_state: &GameState) {
+        self.player.update(game_state);
 
-        entities.retain(|e| map[e.clone()] != Tile::Empty);
-
-        if entities.is_empty() {
-            return Some(GameEvent::Quit);
+        for invader in &mut self.invaders {
+            invader.update(game_state);
         }
 
-        let end = entities.len();
-
-        for i in 0..end {
-            let mut coord = entities[i];
-            let tile = map[coord].clone();
-
-            match tile {
-                Tile::Missile(dir) => match dir {
-                    Dir::Up => {
-                        map[coord] = Tile::Empty;
-
-                        if coord.1 == 0 {
-                            continue;
-                        }
-
-                        coord.1 -= 1;
-
-                        match map[coord] {
-                            Tile::Invader(_) => map[coord] = Tile::Explosion,
-                            _ => map[coord] = tile,
-                        }
-
-                        entities.push(coord)
-                    }
-                    Dir::Down => {
-                        map[coord] = Tile::Empty;
-
-                        if coord.1 == map.height {
-                            continue;
-                        }
-
-                        coord.1 += 1;
-
-                        if map[coord] == Tile::Player {
-                            map[coord] = Tile::Explosion;
-                            return Some(GameEvent::Quit)
-                        } else {
-                            map[coord] = tile;
-                        }
-
-                        entities.push(coord);
-                    }
-                    _ => (),
-                },
-                Tile::Invader(dir) => {
-                    if self.frame_counter % 5 != 0 {
-                        continue;
-                    }
-
-                    let dir = if dir == Dir::Down {
-                        if coord.0 > map.width - 2 {
-                            Dir::Left
-                        } else {
-                            Dir::Right
-                        }
-                    } else if coord.0 > map.width - 2 && map[(coord.0 - 1, coord.1)] == Tile::Empty
-                        || coord.0 < 2 && map[(coord.0 + 1, coord.1)] == Tile::Empty
-                    {
-                        Dir::Down
-                    } else {
-                        dir
-                    };
-
-                    map[coord] = Tile::Empty;
-                    match dir {
-                        Dir::Down => {
-                            if coord.1 < map.height - 1 {
-                                coord.1 += 1;
-                            }
-                        }
-                        Dir::Left => {
-                            if coord.0 > 1 {
-                                coord.0 -= 1;
-                            }
-                        }
-                        Dir::Right => {
-                            if coord.0 < map.width - 1 {
-                                coord.0 += 1;
-                            }
-                        }
-                        _ => (),
-                    }
-
-                    map[coord] = Tile::Invader(dir);
-                    entities.push(coord);
-                }
-                Tile::Explosion => map[coord] = Tile::Empty,
-                _ => (),
-            }
+        for missile in &mut self.missiles {
+            missile.update(game_state);
         }
-
-        None
     }
 
     fn draw(&mut self) {
-        use termion::color;
+        let mut map = Map::new(self.map_size);
 
-        let mut cursor = self.margins.clone();
-        let dimensions = (self.map.width, self.map.height);
+        // Fill the map
+        // TODO This should not be handled here
+        for invader in &self.invaders {
+            let pos = invader.position();
+            map[(pos.0, pos.1)] = invader.icon();
+        }
+
+        for missile in &self.missiles {
+            let pos = missile.position();
+            map[(pos.0, pos.1)] = missile.icon();
+        }
+
+        {
+            let pos = &self.player.position();
+            map[(pos.0, pos.1)] = self.player.icon();
+        }
+        
+        let mut cursor = map.margins.clone();
+        let dimensions = (map.width(), map.height());
 
         // Top border
         print!("{}{}+", termion::clear::All, Goto(cursor.0, cursor.1));
@@ -253,7 +161,7 @@ impl<'a> Game<'a> {
             cursor.0 += 1;
         }
 
-        cursor.0 = self.margins.0;
+        cursor.0 = map.margins.0;
         cursor.1 += 1;
 
         print!("+{}", Goto(cursor.0, cursor.1));
@@ -262,17 +170,9 @@ impl<'a> Game<'a> {
         for y in 0..dimensions.1 {
             print!("|");
             for x in 0..dimensions.0 {
-                match self.map[(x, y)] {
-                    Tile::Empty => print!(" "),
-                    Tile::Explosion => {
-                        print!("{}*{}", color::Fg(color::Red), color::Fg(color::Reset))
-                    }
-                    Tile::Player => print!("^"),
-                    Tile::Missile(_) => print!("!"),
-                    Tile::Invader(_) => print!("@"),
-                }
+                print!("{}", map[(x, y)]);
             }
-            print!("|{}", Goto(self.margins.0, self.margins.1 + y as u16 + 1));
+            print!("|{}", Goto(map.margins.0, map.margins.1 + y as u16 + 1));
         }
 
         // Bottom border
@@ -285,33 +185,5 @@ impl<'a> Game<'a> {
         print!("{}", Goto(1, 1));
 
         self.out.flush().unwrap();
-    }
-
-    fn move_player(&mut self, direction: Dir) {
-        // TODO Handle collision?
-        assert!(self.map[self.player] == Tile::Player);
-
-        self.map[self.player] = Tile::Empty;
-        match direction {
-            Dir::Left => {
-                if self.player.0 > 0 {
-                    self.player.0 -= 1;
-                }
-            }
-            Dir::Right => {
-                if self.player.0 < self.map.width - 1 {
-                    self.player.0 += 1;
-                }
-            }
-            _ => warn!("direction {:?} not supported for move_player.", direction),
-        }
-        self.map[self.player] = Tile::Player;
-    }
-
-    fn fire(&mut self, pos: Coord, dir: Dir) {
-        if self.map[pos] == Tile::Empty {
-            self.map[pos] = Tile::Missile(dir);
-            self.entities.push(pos);
-        }
     }
 }

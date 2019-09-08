@@ -2,8 +2,13 @@ use crate::game::GameState;
 use crate::utils::Coord;
 use crate::utils::Dir;
 
+pub enum Request {
+    FireMissile,
+    Remove,
+}
+
 pub trait Entity {
-    fn update(&mut self, game_state: &GameState);
+    fn update(&mut self, game_state: &GameState) -> Option<Request>;
     fn position(&self) -> &Coord;
     fn icon(&self) -> char;
 }
@@ -35,11 +40,13 @@ impl Player {
 }
 
 impl Entity for Player {
-    fn update(&mut self, game_state: &GameState) {
+    fn update(&mut self, game_state: &GameState) -> Option<Request> {
         use crate::game::CtrlEvent;
 
         self.missile_timer = std::cmp::min(self.missile_timer + 1, 255);
 
+        let mut request = None;
+        
         // Handle user inputs
         for event in game_state.events.iter() {
             match event {
@@ -56,11 +63,13 @@ impl Entity for Player {
                 CtrlEvent::Shoot => {
                     if self.missile_timer > 5 {
                         self.missile_timer = 0;
-                        // TODO Fire!
+                        request = Some(Request::FireMissile)
                     }
                 },
             }
         }
+
+        request
     }
 
     fn position(&self) -> &Coord {
@@ -82,7 +91,7 @@ impl Invader {
 }
 
 impl Entity for Invader {
-    fn update(&mut self, game_state: &GameState) {
+    fn update(&mut self, game_state: &GameState) -> Option<Request> {
         match self.direction {
             Dir::Down => {
                 if self.position.0 < (game_state.map_dimensions.0 - self.position.0) {
@@ -116,6 +125,8 @@ impl Entity for Invader {
                 panic!("Invader with Dir::Up direction should not exist.")
             }
         }
+
+        None
     }
 
     fn position(&self) -> &Coord {
@@ -127,14 +138,39 @@ impl Entity for Invader {
     }
 }
 
+impl Missile {
+    pub fn new(position: Coord, direction: Dir) -> Self {
+        Missile {
+            position,
+            direction,
+        }
+    }
+}
+
 impl Entity for Missile {
-    fn update(&mut self, _game_state: &GameState) {
+    fn update(&mut self, game_state: &GameState) -> Option<Request> {
+        let mut request = None;
+        
         match self.direction {
-            Dir::Up => self.position.1 += 1,
-            Dir::Down => self.position.1 -= 1,
+            Dir::Up => {
+                if self.position.1 > 0 {
+                    self.position.1 -= 1;
+                } else {
+                    request = Some(Request::Remove);
+                }
+            },
+            Dir::Down => {
+                if self.position.1 < game_state.map_dimensions.1 {
+                    self.position.1 += 1;
+                } else {
+                    request = Some(Request::Remove);
+                }
+            },
             Dir::Left => self.position.0 -= 1,
             Dir::Right => self.position.0 += 1,
         }
+
+        request
     }
 
     fn position(&self) -> &Coord {

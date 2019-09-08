@@ -79,7 +79,8 @@ impl<'a> Game<'a> {
 
             self.handle_input(&mut game_state.events);
             self.process_entities(&game_state);
-            self.draw();
+            let map = self.handle_collisions();
+            self.draw(map);
 
             // TODO support separate DEBUG mode?
             print!("{}{:?}", Goto(1, 1), now.elapsed());
@@ -88,7 +89,7 @@ impl<'a> Game<'a> {
             self.frame_counter = (self.frame_counter + 1) % 1024;
 
             // Wait
-            thread::sleep(time::Duration::from_millis(300) - now.elapsed());
+            thread::sleep(time::Duration::from_millis(30) - now.elapsed());
         }
 
         write!(self.out, "{}", termion::cursor::Show).unwrap();
@@ -121,37 +122,48 @@ impl<'a> Game<'a> {
     }
 
     fn process_entities(&mut self, game_state: &GameState) {
-        self.player.update(game_state);
+        use crate::entities::Request;
 
+        self.missiles.drain_filter(|missile: &mut Missile| {
+            match missile.update(game_state) {
+                Some(Request::Remove) => true,
+                _ => false,
+            }
+        });
+        
+        if let Some(Request::FireMissile) = self.player.update(game_state) {
+            let mut pos = self.player.position().clone();
+            pos.1 -= 1;
+            
+            self.missiles.push(Missile::new(pos, Dir::Up));
+        }
+        
         for invader in &mut self.invaders {
             invader.update(game_state);
         }
-
-        for missile in &mut self.missiles {
-            missile.update(game_state);
-        }
     }
 
-    fn draw(&mut self) {
+    fn handle_collisions(&mut self) -> Map {
         let mut map = Map::new(self.map_size);
-
-        // Fill the map
-        // TODO This should not be handled here
-        for invader in &self.invaders {
-            let pos = invader.position();
-            map[(pos.0, pos.1)] = invader.icon();
-        }
-
+        
         for missile in &self.missiles {
             let pos = missile.position();
             map[(pos.0, pos.1)] = missile.icon();
         }
 
-        {
-            let pos = &self.player.position();
-            map[(pos.0, pos.1)] = self.player.icon();
+        for invader in &self.invaders {
+            let pos = invader.position();
+            map[(pos.0, pos.1)] = invader.icon();
         }
+
+
+        let pos = &self.player.position();
+        map[(pos.0, pos.1)] = self.player.icon();
         
+        map
+    }
+    
+    fn draw(&mut self, map: Map) {
         let mut cursor = map.margins.clone();
         let dimensions = (map.width(), map.height());
 

@@ -1,3 +1,11 @@
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Dir {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
 #[derive(Copy, Clone)]
 pub struct Coord (pub usize, pub usize);
 

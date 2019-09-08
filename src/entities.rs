@@ -1,6 +1,6 @@
 use crate::game::GameState;
 use crate::utils::Coord;
-use crate::Dir;
+use crate::utils::Dir;
 
 pub trait Entity {
     fn update(&mut self, game_state: &GameState);
@@ -72,6 +72,15 @@ impl Entity for Player {
     }
 }
 
+impl Invader {
+    pub fn new(position: Coord, direction: Dir) -> Self {
+        Invader {
+            position,
+            direction,
+        }
+    }
+}
+
 impl Entity for Invader {
     fn update(&mut self, game_state: &GameState) {
         match self.direction {
@@ -95,9 +104,9 @@ impl Entity for Invader {
                 }
             }
             Dir::Right => {
-                if self.position.0 == game_state.map_dimensions.0 {
+                if self.position.0 == (game_state.map_dimensions.0 - 1) {
                     self.direction = Dir::Down;
-                    self.position.1 -= 1;
+                    self.position.1 += 1;
                 } else {
                     self.position.0 += 1;
                 }

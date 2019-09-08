@@ -1,6 +1,6 @@
 use crate::entities::{Invader, Missile, Player, Entity};
 use crate::map::Map;
-use crate::utils::Coord;
+use crate::utils::{Coord, Dir};
 use failure::Error;
 use std::clone::Clone;
 use std::io::{stdout, Stdout, Write};
@@ -52,6 +52,8 @@ impl<'a> Game<'a> {
         // TODO move to level file
         let map_size = Coord(45, 15);
         let player_pos = Coord(map_size.0 / 2, map_size.1 - 1);
+
+        let invader = Invader::new(Coord(2, 2), Dir::Right);
         
         Game {
             out: stdout().into_raw_mode().unwrap(),
@@ -60,7 +62,7 @@ impl<'a> Game<'a> {
             is_running: false,
             frame_counter: 0,
             player: Player::new(player_pos),
-            invaders: Vec::new(),
+            invaders: vec![invader],
             missiles: Vec::new(),
         }
     }
@@ -86,7 +88,7 @@ impl<'a> Game<'a> {
             self.frame_counter = (self.frame_counter + 1) % 1024;
 
             // Wait
-            thread::sleep(time::Duration::from_millis(30) - now.elapsed());
+            thread::sleep(time::Duration::from_millis(300) - now.elapsed());
         }
 
         write!(self.out, "{}", termion::cursor::Show).unwrap();

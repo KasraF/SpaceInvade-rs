@@ -10,7 +10,9 @@ pub struct Map {
 impl Map {
     pub fn new(map_size: Coord) -> Self {
 
-        let margins = if let Ok((w, h)) = termion::terminal_size() {
+        let term_size = termion::terminal_size();
+
+        let margins = if let Ok((w, h)) = term_size {
             ((w - map_size.0 as u16) / 2, (h - map_size.1 as u16) / 2)
         } else {
             (0, 0)
@@ -44,13 +46,18 @@ impl Index<(usize, usize)> for Map {
     type Output = char;
 
     fn index(&self, (x, y): (usize, usize)) -> &Self::Output {
+        debug_assert!(x < self.dimensions.0);
+        debug_assert!(y < self.dimensions.1);
+            
         &self.grid[y * self.dimensions.0 + x]
     }
 }
 
 impl IndexMut<(usize, usize)> for Map {
     fn index_mut(&mut self, (x, y): (usize, usize)) -> &mut Self::Output {
-        let i = y * self.dimensions.0 + x;
-        &mut self.grid[i]
+        debug_assert!(x < self.dimensions.0);
+        debug_assert!(y < self.dimensions.1);
+        
+        &mut self.grid[y * self.dimensions.0 + x]
     }
 }

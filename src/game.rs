@@ -1,4 +1,4 @@
-use crate::entities::{Invader, Missile, Player, Entity};
+use crate::entities::{Entity, Invader, Missile, Player};
 use crate::map::Map;
 use crate::utils::{Coord, Dir};
 use failure::Error;
@@ -20,6 +20,7 @@ pub enum CtrlEvent {
 pub struct GameState {
     pub events: Vec<CtrlEvent>,
     pub map_dimensions: Coord,
+    pub frame: u8,
 }
 
 pub struct Game<'a> {
@@ -43,6 +44,7 @@ impl GameState {
         Self {
             events: Vec::new(),
             map_dimensions: dimensions,
+            frame: 0,
         }
     }
 }
@@ -53,8 +55,10 @@ impl<'a> Game<'a> {
         let map_size = Coord(45, 15);
         let player_pos = Coord(map_size.0 / 2, map_size.1 - 1);
 
-        let invader = Invader::new(Coord(2, 2), Dir::Right);
-        
+        let invader1 = Invader::new(Coord(2, 2), Dir::Right);
+        let invader2 = Invader::new(Coord(3, 2), Dir::Right);
+        let invader3 = Invader::new(Coord(4, 2), Dir::Right);
+
         Game {
             out: stdout().into_raw_mode().unwrap(),
             input,
@@ -62,7 +66,7 @@ impl<'a> Game<'a> {
             is_running: false,
             frame_counter: 0,
             player: Player::new(player_pos),
-            invaders: vec![invader],
+            invaders: vec![invader1, invader2, invader3],
             missiles: Vec::new(),
         }
     }
@@ -75,12 +79,17 @@ impl<'a> Game<'a> {
             // Timer!
             let now = time::Instant::now();
 
+            game_state.frame = (((game_state.frame as u16) + 1) % 255) as u8;
             game_state.events.clear();
 
             self.handle_input(&mut game_state.events);
             self.process_entities(&game_state);
             let map = self.handle_collisions();
             self.draw(map);
+
+            if self.invaders.is_empty() {
+                self.is_running = false;                    
+            }
 
             // TODO support separate DEBUG mode?
             print!("{}{:?}", Goto(1, 1), now.elapsed());
@@ -124,46 +133,59 @@ impl<'a> Game<'a> {
     fn process_entities(&mut self, game_state: &GameState) {
         use crate::entities::Request;
 
-        self.missiles.drain_filter(|missile: &mut Missile| {
-            match missile.update(game_state) {
-                Some(Request::Remove) => true,
-                _ => false,
-            }
-        });
-        
+        for missile in &mut self.missiles {
+            missile.update(game_state);
+        }
+
         if let Some(Request::FireMissile) = self.player.update(game_state) {
             let mut pos = self.player.position().clone();
             pos.1 -= 1;
-            
+
             self.missiles.push(Missile::new(pos, Dir::Up));
         }
-        
+
         for invader in &mut self.invaders {
             invader.update(game_state);
         }
     }
 
-    fn handle_collisions(&mut self) -> Map {
-        let mut map = Map::new(self.map_size);
+    fn handle_collisions(&mut self) -> Map<crate::utils::Tile> {
+        use crate::utils::Tile;
         
-        for missile in &self.missiles {
+        let mut map = Map::<Tile>::new(self.map_size, Tile::None);
+
+        for (index, missile) in self.missiles.iter().enumerate() {
             let pos = missile.position();
-            map[(pos.0, pos.1)] = missile.icon();
+            map[pos] = Tile::Missile(index);
         }
 
-        for invader in &self.invaders {
+        for (index, invader) in self.invaders.iter().enumerate() {
             let pos = invader.position();
-            map[(pos.0, pos.1)] = invader.icon();
+            map[pos] = match map[pos] {
+                Tile::None => Tile::Invader(index),
+                _ => Tile::Explosion,
+            }
         }
 
+        self.missiles.retain(|missile| match map[missile.position()] {
+            Tile::Missile(_) => true,
+            _ => false, 
+        });
 
-        let pos = &self.player.position();
-        map[(pos.0, pos.1)] = self.player.icon();
+        self.invaders.retain(|invader| match map[invader.position()] {
+            Tile::Invader(_) => true,
+            _ => false, 
+        });
         
+        let pos = self.player.position();
+        map[pos] = Tile::Player;
+
         map
     }
-    
-    fn draw(&mut self, map: Map) {
+
+    fn draw(&mut self, map: Map<crate::utils::Tile>) {
+        use crate::utils::Tile;
+        
         let mut cursor = map.margins.clone();
         let dimensions = (map.width(), map.height());
 
@@ -184,7 +206,15 @@ impl<'a> Game<'a> {
         for y in 0..dimensions.1 {
             print!("|");
             for x in 0..dimensions.0 {
-                print!("{}", map[(x, y)]);
+                let icon = match map[(x, y)] {
+                    Tile::Explosion => '*',
+                    Tile::Invader(_) => '@',
+                    Tile::Missile(_) => '!',
+                    Tile::Player => '^',
+                    Tile::None => ' ',
+                };
+                                     
+                print!("{}", icon);
             }
             print!("|{}", Goto(map.margins.0, map.margins.1 + y as u16 + 1));
         }

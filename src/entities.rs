@@ -8,6 +8,9 @@ pub enum Request {
 }
 
 pub trait Entity {
+    // TODO Move this to a set of functions outside the structs.
+    // This OOP pattern does not work well/make sense with the rest
+    // of the game design.
     fn update(&mut self, game_state: &GameState) -> Option<Request>;
     fn position(&self) -> &Coord;
     fn icon(&self) -> char;
@@ -46,7 +49,7 @@ impl Entity for Player {
         self.missile_timer = std::cmp::min(self.missile_timer + 1, 255);
 
         let mut request = None;
-        
+
         // Handle user inputs
         for event in game_state.events.iter() {
             match event {
@@ -54,18 +57,18 @@ impl Entity for Player {
                     if self.position.0 > 0 {
                         self.position.0 -= 1
                     }
-                },
+                }
                 CtrlEvent::Right => {
                     if self.position.0 < (game_state.map_dimensions.0 - 1) {
                         self.position.0 += 1
                     }
-                },
+                }
                 CtrlEvent::Shoot => {
                     if self.missile_timer > 5 {
                         self.missile_timer = 0;
                         request = Some(Request::FireMissile)
                     }
-                },
+                }
             }
         }
 
@@ -92,6 +95,10 @@ impl Invader {
 
 impl Entity for Invader {
     fn update(&mut self, game_state: &GameState) -> Option<Request> {
+        if game_state.frame % 5 != 0 {
+            return None;
+        }
+        
         match self.direction {
             Dir::Down => {
                 if self.position.0 < (game_state.map_dimensions.0 - self.position.0) {
@@ -150,7 +157,7 @@ impl Missile {
 impl Entity for Missile {
     fn update(&mut self, game_state: &GameState) -> Option<Request> {
         let mut request = None;
-        
+
         match self.direction {
             Dir::Up => {
                 if self.position.1 > 0 {
@@ -158,14 +165,14 @@ impl Entity for Missile {
                 } else {
                     request = Some(Request::Remove);
                 }
-            },
+            }
             Dir::Down => {
                 if self.position.1 < game_state.map_dimensions.1 {
                     self.position.1 += 1;
                 } else {
                     request = Some(Request::Remove);
                 }
-            },
+            }
             Dir::Left => self.position.0 -= 1,
             Dir::Right => self.position.0 += 1,
         }

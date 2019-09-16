@@ -6,6 +6,15 @@ pub enum Dir {
     Right,
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum Tile {
+    Invader(usize),
+    Player,
+    Missile(usize),
+    Explosion,
+    None,
+}
+
 #[derive(Copy, Clone)]
 pub struct Coord (pub usize, pub usize);
 

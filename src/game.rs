@@ -88,7 +88,7 @@ impl<'a> Game<'a> {
             self.draw(map);
 
             if self.invaders.is_empty() {
-                self.is_running = false;                    
+                self.is_running = false;
             }
 
             // TODO support separate DEBUG mode?
@@ -131,27 +131,128 @@ impl<'a> Game<'a> {
     }
 
     fn process_entities(&mut self, game_state: &GameState) {
-        use crate::entities::Request;
+        // TODO This could be done in parallel.
+        Self::update_missiles(&mut self.missiles, game_state);
+        let mut missiles = Self::update_invaders(&mut self.invaders, game_state);
+        let missile = Self::update_player(&mut self.player, game_state);
 
-        for missile in &mut self.missiles {
-            missile.update(game_state);
+        if let Some(missile) = missile {
+            missiles.push(missile);
         }
 
-        if let Some(Request::FireMissile) = self.player.update(game_state) {
-            let mut pos = self.player.position().clone();
-            pos.1 -= 1;
+        self.missiles.append(&mut missiles);
+    }
 
-            self.missiles.push(Missile::new(pos, Dir::Up));
+    fn update_missiles(missiles: &mut Vec<Missile>, game_state: &GameState) {
+        missiles.drain_filter(|missile: &mut Missile| match missile.direction {
+            Dir::Up => {
+                if missile.position.1 > 0 {
+                    missile.position.1 -= 1;
+                    false
+                } else {
+                    true
+                }
+            }
+            Dir::Down => {
+                if missile.position.1 < game_state.map_dimensions.1 {
+                    missile.position.1 += 1;
+                    false
+                } else {
+                    true
+                }
+            }
+            Dir::Left => {
+                missile.position.0 -= 1;
+                false
+            }
+            Dir::Right => {
+                missile.position.0 += 1;
+                false
+            }
+        });
+    }
+
+    fn update_player(player: &mut Player, game_state: &GameState) -> Option<Missile> {
+        player.missile_timer = std::cmp::min(player.missile_timer + 1, 255);
+
+        let mut request = None;
+
+        // Handle user inputs
+        for event in game_state.events.iter() {
+            match event {
+                CtrlEvent::Left => {
+                    if player.position.0 > 0 {
+                        player.position.0 -= 1
+                    }
+                }
+                CtrlEvent::Right => {
+                    if player.position.0 < (game_state.map_dimensions.0 - 1) {
+                        player.position.0 += 1
+                    }
+                }
+                CtrlEvent::Shoot => {
+                    if player.missile_timer > 5 {
+                        player.missile_timer = 0;
+                        let mut pos = player.position.clone();
+                        pos.1 -= 1;
+                        request = Some(Missile::new(pos, Dir::Up))
+                    }
+                }
+            }
         }
 
-        for invader in &mut self.invaders {
-            invader.update(game_state);
+        request
+    }
+
+    fn update_invaders(invaders: &mut Vec<Invader>, game_state: &GameState) -> Vec<Missile> {
+        let rv = Vec::with_capacity(0);
+        
+        // TODO The invaders should fire back!!!
+        
+        if game_state.frame % 5 == 0 {
+            for invader in invaders {
+                match invader.direction {
+                    Dir::Down => {
+                        if invader.position.0 < (game_state.map_dimensions.0 - invader.position.0) {
+                            // Closer to left edge
+                            invader.direction = Dir::Right;
+                            invader.position.0 += 1;
+                        } else {
+                            // Closer to right edge
+                            invader.direction = Dir::Left;
+                            invader.position.0 -= 1;
+                        }
+                    }
+                    Dir::Left => {
+                        if invader.position.0 == 0 {
+                            invader.direction = Dir::Down;
+                            invader.position.1 += 1;
+                        } else {
+                            invader.position.0 -= 1;
+                        }
+                    }
+                    Dir::Right => {
+                        if invader.position.0 == (game_state.map_dimensions.0 - 1) {
+                            invader.direction = Dir::Down;
+                            invader.position.1 += 1;
+                        } else {
+                            invader.position.0 += 1;
+                        }
+                    }
+                    Dir::Up => {
+                        // TODO Log error.
+                        panic!("Invader with Dir::Up direction should not exist.")
+                    }
+                }
+            }
         }
+
+        rv
     }
 
     fn handle_collisions(&mut self) -> Map<crate::utils::Tile> {
         use crate::utils::Tile;
-        
+
         let mut map = Map::<Tile>::new(self.map_size, Tile::None);
 
         for (index, missile) in self.missiles.iter().enumerate() {
@@ -167,16 +268,18 @@ impl<'a> Game<'a> {
             }
         }
 
-        self.missiles.retain(|missile| match map[missile.position()] {
-            Tile::Missile(_) => true,
-            _ => false, 
-        });
+        self.missiles
+            .retain(|missile| match map[missile.position()] {
+                Tile::Missile(_) => true,
+                _ => false,
+            });
 
-        self.invaders.retain(|invader| match map[invader.position()] {
-            Tile::Invader(_) => true,
-            _ => false, 
-        });
-        
+        self.invaders
+            .retain(|invader| match map[invader.position()] {
+                Tile::Invader(_) => true,
+                _ => false,
+            });
+
         let pos = self.player.position();
         map[pos] = Tile::Player;
 
@@ -185,7 +288,7 @@ impl<'a> Game<'a> {
 
     fn draw(&mut self, map: Map<crate::utils::Tile>) {
         use crate::utils::Tile;
-        
+
         let mut cursor = map.margins.clone();
         let dimensions = (map.width(), map.height());
 
@@ -207,13 +310,13 @@ impl<'a> Game<'a> {
             print!("|");
             for x in 0..dimensions.0 {
                 let icon = match map[(x, y)] {
-                    Tile::Explosion => '*',
-                    Tile::Invader(_) => '@',
-                    Tile::Missile(_) => '!',
-                    Tile::Player => '^',
-                    Tile::None => ' ',
+                    Tile::Explosion => "*",
+                    Tile::Invader(_) => "@",
+                    Tile::Missile(_) => "!",
+                    Tile::Player => "^",
+                    Tile::None => " ",
                 };
-                                     
+
                 print!("{}", icon);
             }
             print!("|{}", Goto(map.margins.0, map.margins.1 + y as u16 + 1));

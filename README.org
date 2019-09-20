@@ -1,0 +1,2 @@
+* Terminal Space Invaders
+  This is a practice project I used to learn #RustLang programming.

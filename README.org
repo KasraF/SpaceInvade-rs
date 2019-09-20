@@ -1,2 +1,3 @@
 * Terminal Space Invaders
-  This is a practice project I used to learn #RustLang programming.
+  This is a practice project I used to learn programming in Rust by making a bullet-hell shooter from scratch.
+  At the moment, it is one level, and runs in the terminal.

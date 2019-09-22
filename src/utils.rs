@@ -23,3 +23,11 @@ impl Coord {
         self.0 * self.1
     }
 }
+
+pub fn looped_inc<T: num::Integer + num::Unsigned + num::Bounded + Copy>(num: &mut T) {
+    *num = (*num + T::one()) % (T::max_value() - T::one());
+}
+
+pub fn capped_inc<T: num::Integer + num::Unsigned + num::Bounded + Copy>(num: &mut T) {
+    *num = std::cmp::min(*num + T::one(), T::max_value() - T::one());
+}

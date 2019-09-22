@@ -3,13 +3,13 @@ use crate::map::Map;
 use crate::utils::{Coord, Dir};
 use failure::Error;
 use std::clone::Clone;
-use std::io::{stdout, Stdout, Write};
+use std::io::{Stdout, Write};
 use std::thread;
 use std::time;
 use termion::cursor::Goto;
 use termion::event::Key;
 use termion::input::TermRead;
-use termion::raw::{IntoRawMode, RawTerminal};
+use termion::raw::RawTerminal;
 
 pub enum CtrlEvent {
     Left,
@@ -17,20 +17,15 @@ pub enum CtrlEvent {
     Shoot,
 }
 
-pub struct GameState {
+pub struct FrameState {
     pub events: Vec<CtrlEvent>,
     pub map_dimensions: Coord,
     pub frame: u8,
 }
 
-pub struct Game<'a> {
-    // IO stuff
-    out: RawTerminal<Stdout>,
-    input: &'a mut termion::AsyncReader,
-
+pub struct GameLoop {
     // Game Logic stuff
     is_running: bool,
-    frame_counter: usize,
     map_size: Coord,
 
     // Entities
@@ -39,7 +34,7 @@ pub struct Game<'a> {
     missiles: Vec<Missile>,
 }
 
-impl GameState {
+impl FrameState {
     fn new(dimensions: Coord) -> Self {
         Self {
             events: Vec::new(),
@@ -49,8 +44,8 @@ impl GameState {
     }
 }
 
-impl<'a> Game<'a> {
-    pub fn init(input: &'a mut termion::AsyncReader) -> Self {
+impl GameLoop {
+    pub fn init() -> Self {
         // TODO move to level file
         let map_size = Coord(45, 15);
         let player_pos = Coord(map_size.0 / 2, map_size.1 - 1);
@@ -58,59 +53,80 @@ impl<'a> Game<'a> {
         let invader1 = Invader::new(Coord(2, 2), Dir::Right);
         let invader2 = Invader::new(Coord(3, 2), Dir::Right);
         let invader3 = Invader::new(Coord(4, 2), Dir::Right);
+        let invader4 = Invader::new(Coord(5, 2), Dir::Right);
 
-        Game {
-            out: stdout().into_raw_mode().unwrap(),
-            input,
+        let invader5 = Invader::new(Coord(7, 2), Dir::Right);
+        let invader6 = Invader::new(Coord(8, 2), Dir::Right);
+        let invader7 = Invader::new(Coord(9, 2), Dir::Right);
+        let invader8 = Invader::new(Coord(10, 2), Dir::Right);
+
+        let invader9 = Invader::new(Coord(12, 2), Dir::Right);
+        let invader10 = Invader::new(Coord(13, 2), Dir::Right);
+        let invader11 = Invader::new(Coord(14, 2), Dir::Right);
+        let invader12 = Invader::new(Coord(15, 2), Dir::Right);
+
+        let invader13 = Invader::new(Coord(17, 2), Dir::Right);
+        let invader14 = Invader::new(Coord(18, 2), Dir::Right);
+        let invader15 = Invader::new(Coord(19, 2), Dir::Right);
+        let invader16 = Invader::new(Coord(20, 2), Dir::Right);
+
+        let invaders = vec![
+            invader1, invader2, invader3, invader4, invader5, invader6, invader7, invader8,
+            invader9, invader10, invader11, invader12, invader13, invader14, invader15, invader16,
+        ];
+
+        Self {
             map_size,
-            is_running: false,
-            frame_counter: 0,
+            invaders,
+            is_running: true,
             player: Player::new(player_pos),
-            invaders: vec![invader1, invader2, invader3],
             missiles: Vec::new(),
         }
     }
 
-    pub fn run(&mut self) -> Result<(), Error> {
-        let mut game_state = GameState::new(self.map_size);
-        self.is_running = true;
+    pub fn frame(
+        &mut self,
+        input: &mut termion::AsyncReader,
+        out: &mut RawTerminal<Stdout>,
+        frame: u8,
+    ) -> Result<(), Error> {
+        let mut frame_state = FrameState::new(self.map_size);
 
-        while self.is_running {
-            // Timer!
-            let now = time::Instant::now();
+        // Timer!
+        let now = time::Instant::now();
 
-            game_state.frame = (((game_state.frame as u16) + 1) % 255) as u8;
-            game_state.events.clear();
+        frame_state.frame = frame;
+        frame_state.events.clear();
 
-            self.handle_input(&mut game_state.events);
-            self.process_entities(&game_state);
-            let map = self.handle_collisions();
-            self.draw(map);
+        self.handle_input(input, &mut frame_state.events);
+        self.process_entities(&frame_state);
+        let map = self.handle_collisions();
+        self.draw(out, map)?;
 
-            if self.invaders.is_empty() {
-                self.is_running = false;
-            }
-
-            // TODO support separate DEBUG mode?
-            print!("{}{:?}", Goto(1, 1), now.elapsed());
-            self.out.flush().unwrap();
-
-            self.frame_counter = (self.frame_counter + 1) % 1024;
-
-            // Wait
-            thread::sleep(time::Duration::from_millis(30) - now.elapsed());
+        if self.invaders.is_empty() {
+            self.is_running = false;
         }
 
-        write!(self.out, "{}", termion::cursor::Show).unwrap();
+        // TODO support separate DEBUG mode?
+        write!(out, "{}{:?}", Goto(1, 1), now.elapsed())?;
+        out.flush().unwrap();
 
-        Ok(())
+        // Wait
+        thread::sleep(time::Duration::from_millis(30) - now.elapsed());
+
+        if self.is_running {
+            Ok(())
+        } else {
+            Err(format_err!("Game over"))
+        }
     }
 
-    fn handle_input(&mut self, events: &mut Vec<CtrlEvent>) {
+    fn handle_input(&mut self, input: &mut termion::AsyncReader, events: &mut Vec<CtrlEvent>) {
+        // TODO Is there a better way to do this?
         use std::io::Error;
         use termion::event::Event;
 
-        let input_events = self.input.events().collect::<Vec<Result<Event, Error>>>();
+        let input_events = input.events().collect::<Vec<Result<Event, Error>>>();
 
         for event in input_events {
             match event {
@@ -130,11 +146,11 @@ impl<'a> Game<'a> {
         }
     }
 
-    fn process_entities(&mut self, game_state: &GameState) {
+    fn process_entities(&mut self, frame_state: &FrameState) {
         // TODO This could be done in parallel.
-        Self::update_missiles(&mut self.missiles, game_state);
-        let mut missiles = Self::update_invaders(&mut self.invaders, game_state);
-        let missile = Self::update_player(&mut self.player, game_state);
+        Self::update_missiles(&mut self.missiles, frame_state);
+        let mut missiles = Self::update_invaders(&mut self.invaders, frame_state);
+        let missile = Self::update_player(&mut self.player, frame_state);
 
         if let Some(missile) = missile {
             missiles.push(missile);
@@ -143,7 +159,7 @@ impl<'a> Game<'a> {
         self.missiles.append(&mut missiles);
     }
 
-    fn update_missiles(missiles: &mut Vec<Missile>, game_state: &GameState) {
+    fn update_missiles(missiles: &mut Vec<Missile>, frame_state: &FrameState) {
         missiles.drain_filter(|missile: &mut Missile| match missile.direction {
             Dir::Up => {
                 if missile.position.1 > 0 {
@@ -154,7 +170,7 @@ impl<'a> Game<'a> {
                 }
             }
             Dir::Down => {
-                if missile.position.1 < game_state.map_dimensions.1 {
+                if missile.position.1 < frame_state.map_dimensions.1 {
                     missile.position.1 += 1;
                     false
                 } else {
@@ -172,13 +188,13 @@ impl<'a> Game<'a> {
         });
     }
 
-    fn update_player(player: &mut Player, game_state: &GameState) -> Option<Missile> {
-        player.missile_timer = std::cmp::min(player.missile_timer + 1, 255);
+    fn update_player(player: &mut Player, frame_state: &FrameState) -> Option<Missile> {
+        player.missile_timer = std::cmp::min(player.missile_timer + 1, 254);
 
         let mut request = None;
 
         // Handle user inputs
-        for event in game_state.events.iter() {
+        for event in frame_state.events.iter() {
             match event {
                 CtrlEvent::Left => {
                     if player.position.0 > 0 {
@@ -186,7 +202,7 @@ impl<'a> Game<'a> {
                     }
                 }
                 CtrlEvent::Right => {
-                    if player.position.0 < (game_state.map_dimensions.0 - 1) {
+                    if player.position.0 < (frame_state.map_dimensions.0 - 1) {
                         player.position.0 += 1
                     }
                 }
@@ -204,16 +220,17 @@ impl<'a> Game<'a> {
         request
     }
 
-    fn update_invaders(invaders: &mut Vec<Invader>, game_state: &GameState) -> Vec<Missile> {
+    fn update_invaders(invaders: &mut Vec<Invader>, frame_state: &FrameState) -> Vec<Missile> {
         let rv = Vec::with_capacity(0);
-        
+
         // TODO The invaders should fire back!!!
-        
-        if game_state.frame % 5 == 0 {
+
+        if frame_state.frame % 5 == 0 {
             for invader in invaders {
                 match invader.direction {
                     Dir::Down => {
-                        if invader.position.0 < (game_state.map_dimensions.0 - invader.position.0) {
+                        if invader.position.0 < (frame_state.map_dimensions.0 - invader.position.0)
+                        {
                             // Closer to left edge
                             invader.direction = Dir::Right;
                             invader.position.0 += 1;
@@ -232,7 +249,7 @@ impl<'a> Game<'a> {
                         }
                     }
                     Dir::Right => {
-                        if invader.position.0 == (game_state.map_dimensions.0 - 1) {
+                        if invader.position.0 == (frame_state.map_dimensions.0 - 1) {
                             invader.direction = Dir::Down;
                             invader.position.1 += 1;
                         } else {
@@ -286,28 +303,32 @@ impl<'a> Game<'a> {
         map
     }
 
-    fn draw(&mut self, map: Map<crate::utils::Tile>) {
+    fn draw(
+        &mut self,
+        out: &mut RawTerminal<Stdout>,
+        map: Map<crate::utils::Tile>,
+    ) -> Result<(), Error> {
         use crate::utils::Tile;
 
         let mut cursor = map.margins.clone();
         let dimensions = (map.width(), map.height());
 
         // Top border
-        print!("{}{}+", termion::clear::All, Goto(cursor.0, cursor.1));
+        write!(out, "{}{}+", termion::clear::All, Goto(cursor.0, cursor.1))?;
 
         for _ in 0..dimensions.0 {
-            print!("-");
+            write!(out, "-")?;
             cursor.0 += 1;
         }
 
         cursor.0 = map.margins.0;
         cursor.1 += 1;
 
-        print!("+{}", Goto(cursor.0, cursor.1));
+        write!(out, "+{}", Goto(cursor.0, cursor.1))?;
 
         // Contents
         for y in 0..dimensions.1 {
-            print!("|");
+            write!(out, "|")?;
             for x in 0..dimensions.0 {
                 let icon = match map[(x, y)] {
                     Tile::Explosion => "*",
@@ -317,20 +338,26 @@ impl<'a> Game<'a> {
                     Tile::None => " ",
                 };
 
-                print!("{}", icon);
+                write!(out, "{}", icon)?;
             }
-            print!("|{}", Goto(map.margins.0, map.margins.1 + y as u16 + 1));
+            write!(
+                out,
+                "|{}",
+                Goto(map.margins.0, map.margins.1 + y as u16 + 1)
+            )?;
         }
 
         // Bottom border
-        print!("+");
+        write!(out, "+")?;
         for _ in 0..dimensions.0 {
-            print!("-");
+            write!(out, "-")?;
         }
         println!("+");
 
-        print!("{}", Goto(1, 1));
+        write!(out, "{}", Goto(1, 1))?;
 
-        self.out.flush().unwrap();
+        out.flush().unwrap();
+
+        Ok(())
     }
 }

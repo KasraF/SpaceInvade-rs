@@ -15,6 +15,29 @@ pub enum Tile {
     None,
 }
 
+#[derive(Clone, Copy)]
+pub struct Screen {
+    margins: Coord,
+    size: Coord,
+}
+
+impl Screen {
+    pub fn new(margins: Coord, size: Coord) -> Self {
+        Self {
+            margins,
+            size
+        }
+    }
+
+    pub fn margins(&self) -> &Coord {
+        &self.margins
+    }
+
+    pub fn size(&self) -> &Coord {
+        &self.size
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct Coord (pub usize, pub usize);
 

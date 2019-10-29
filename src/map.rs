@@ -4,21 +4,10 @@ use std::ops::{Index, IndexMut};
 pub struct Map<T: Copy> {
     pub dimensions: Coord,
     pub grid: Vec<T>,
-    pub margins: (u16, u16),
 }
 
 impl<T: Copy> Map<T> {
     pub fn new(map_size: Coord, default: T) -> Self {
-
-        let term_size = termion::terminal_size();
-
-        let margins = if let Ok((w, h)) = term_size {
-            ((w - map_size.0 as u16) / 2, (h - map_size.1 as u16) / 2)
-        } else {
-            (0, 0)
-        };
-
-        
 
         let size = map_size.area();
         let mut grid = Vec::<T>::with_capacity(size);
@@ -29,7 +18,6 @@ impl<T: Copy> Map<T> {
         
         Map {
             dimensions: map_size,
-            margins,
             grid,
         }
     }

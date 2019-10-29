@@ -1,6 +1,8 @@
 use crate::entities::{Entity, Invader, Missile, Player};
 use crate::map::Map;
-use crate::utils::{Coord, Dir};
+use crate::utils::{Coord, Dir, Screen};
+use crate::game::Loop;
+use crate::game::GameAction;
 use failure::Error;
 use std::clone::Clone;
 use std::io::{Stdout, Write};
@@ -19,15 +21,16 @@ pub enum CtrlEvent {
 
 pub struct FrameState {
     pub events: Vec<CtrlEvent>,
-    pub map_dimensions: Coord,
+    pub screen: Screen,
     pub frame: u8,
 }
 
 pub struct GameLoop {
     // Game Logic stuff
     is_running: bool,
-    map_size: Coord,
-
+    screen: Screen,
+    frame: u8,
+	
     // Entities
     player: Player,
     invaders: Vec<Invader>,
@@ -35,19 +38,19 @@ pub struct GameLoop {
 }
 
 impl FrameState {
-    fn new(dimensions: Coord) -> Self {
+    fn new(screen: Screen) -> Self {
         Self {
             events: Vec::new(),
-            map_dimensions: dimensions,
+            screen,
             frame: 0,
         }
     }
 }
 
-impl GameLoop {
-    pub fn init() -> Self {
+impl Loop<'_> for GameLoop {
+    fn init(screen: Screen) -> Self {
         // TODO move to level file
-        let map_size = Coord(45, 15);
+        let map_size = screen.size();
         let player_pos = Coord(map_size.0 / 2, map_size.1 - 1);
 
         let invader1 = Invader::new(Coord(2, 2), Dir::Right);
@@ -76,50 +79,51 @@ impl GameLoop {
         ];
 
         Self {
-            map_size,
+            screen,
             invaders,
+            frame: 0,
             is_running: true,
             player: Player::new(player_pos),
             missiles: Vec::new(),
         }
     }
 
-    pub fn frame(
-        &mut self,
-        input: &mut termion::AsyncReader,
-        out: &mut RawTerminal<Stdout>,
-        frame: u8,
-    ) -> Result<(), Error> {
-        let mut frame_state = FrameState::new(self.map_size);
+    fn frame(&mut self, input: &mut termion::AsyncReader, out: &mut RawTerminal<Stdout>) -> Option<GameAction> {
+        let mut frame_state = FrameState::new(self.screen);
 
         // Timer!
         let now = time::Instant::now();
 
-        frame_state.frame = frame;
+        frame_state.frame = self.frame;
         frame_state.events.clear();
 
         self.handle_input(input, &mut frame_state.events);
         self.process_entities(&frame_state);
         let map = self.handle_collisions();
-        self.draw(out, map)?;
+        self.draw(out, map);
 
         if self.invaders.is_empty() {
             self.is_running = false;
         }
 
         // TODO support separate DEBUG mode?
-        write!(out, "{}{:?}", Goto(1, 1), now.elapsed())?;
+        write!(out, "{}{:?}", Goto(1, 1), now.elapsed());
         out.flush().unwrap();
 
+		crate::utils::looped_inc(&mut self.frame);
+		
         // Wait
         thread::sleep(time::Duration::from_millis(30) - now.elapsed());
 
         if self.is_running {
-            Ok(())
+            Some(GameAction::Continue)
         } else {
-            Err(format_err!("Game over"))
+            Some(GameAction::Menu)
         }
     }
+}
+
+impl GameLoop {
 
     fn handle_input(&mut self, input: &mut termion::AsyncReader, events: &mut Vec<CtrlEvent>) {
         // TODO Is there a better way to do this?
@@ -170,7 +174,7 @@ impl GameLoop {
                 }
             }
             Dir::Down => {
-                if missile.position.1 < frame_state.map_dimensions.1 {
+                if missile.position.1 < frame_state.screen.size().1 {
                     missile.position.1 += 1;
                     false
                 } else {
@@ -202,7 +206,7 @@ impl GameLoop {
                     }
                 }
                 CtrlEvent::Right => {
-                    if player.position.0 < (frame_state.map_dimensions.0 - 1) {
+                    if player.position.0 < (frame_state.screen.size().0 - 1) {
                         player.position.0 += 1
                     }
                 }
@@ -229,7 +233,7 @@ impl GameLoop {
             for invader in invaders {
                 match invader.direction {
                     Dir::Down => {
-                        if invader.position.0 < (frame_state.map_dimensions.0 - invader.position.0)
+                        if invader.position.0 < (frame_state.screen.size().0 - invader.position.0)
                         {
                             // Closer to left edge
                             invader.direction = Dir::Right;
@@ -249,7 +253,7 @@ impl GameLoop {
                         }
                     }
                     Dir::Right => {
-                        if invader.position.0 == (frame_state.map_dimensions.0 - 1) {
+                        if invader.position.0 == (frame_state.screen.size().0 - 1) {
                             invader.direction = Dir::Down;
                             invader.position.1 += 1;
                         } else {
@@ -270,7 +274,7 @@ impl GameLoop {
     fn handle_collisions(&mut self) -> Map<crate::utils::Tile> {
         use crate::utils::Tile;
 
-        let mut map = Map::<Tile>::new(self.map_size, Tile::None);
+        let mut map = Map::<Tile>::new(self.screen.size().clone(), Tile::None);
 
         for (index, missile) in self.missiles.iter().enumerate() {
             let pos = missile.position();
@@ -305,30 +309,33 @@ impl GameLoop {
 
     fn draw(
         &mut self,
-        out: &mut RawTerminal<Stdout>,
+        output: &mut RawTerminal<Stdout>,
         map: Map<crate::utils::Tile>,
     ) -> Result<(), Error> {
         use crate::utils::Tile;
+		use std::fmt::Write;
 
-        let mut cursor = map.margins.clone();
+		let mut buff = String::new();
+		let margins = self.screen.margins();
+		let mut cursor = (margins.0 as u16, margins.1 as u16);
         let dimensions = (map.width(), map.height());
 
         // Top border
-        write!(out, "{}{}+", termion::clear::All, Goto(cursor.0, cursor.1))?;
+        write!(&mut buff, "{}{}+", termion::clear::All, Goto(cursor.0, cursor.1))?;
 
         for _ in 0..dimensions.0 {
-            write!(out, "-")?;
+            write!(&mut buff, "-")?;
             cursor.0 += 1;
         }
 
-        cursor.0 = map.margins.0;
+        cursor.0 = margins.0 as u16;
         cursor.1 += 1;
 
-        write!(out, "+{}", Goto(cursor.0, cursor.1))?;
+        write!(&mut buff, "+{}", Goto(cursor.0, cursor.1))?;
 
         // Contents
         for y in 0..dimensions.1 {
-            write!(out, "|")?;
+            write!(&mut buff, "|")?;
             for x in 0..dimensions.0 {
                 let icon = match map[(x, y)] {
                     Tile::Explosion => "*",
@@ -338,25 +345,24 @@ impl GameLoop {
                     Tile::None => " ",
                 };
 
-                write!(out, "{}", icon)?;
+                write!(&mut buff, "{}", icon)?;
             }
             write!(
-                out,
+                &mut buff,
                 "|{}",
-                Goto(map.margins.0, map.margins.1 + y as u16 + 1)
-            )?;
+                Goto(margins.0 as u16, margins.1 as u16 + y as u16 + 1)
+            );
         }
 
         // Bottom border
-        write!(out, "+")?;
+        write!(&mut buff, "+");
         for _ in 0..dimensions.0 {
-            write!(out, "-")?;
+            write!(&mut buff, "-");
         }
         println!("+");
 
-        write!(out, "{}", Goto(1, 1))?;
-
-        out.flush().unwrap();
+        write!(&mut buff, "{}", Goto(1, 1));		
+        // out.flush().unwrap();
 
         Ok(())
     }

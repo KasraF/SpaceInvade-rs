@@ -315,8 +315,10 @@ impl GameLoop {
         use crate::utils::Tile;
 		use std::fmt::Write;
 
-		let mut buff = String::new();
+		// TODO Reuse buffer to avoid reallocating every frame
 		let margins = self.screen.margins();
+		let screen_size = self.screen.size();
+		let mut buff = String::with_capacity((margins.0 + screen_size.0) * (margins.1 + screen_size.1));
 		let mut cursor = (margins.0 as u16, margins.1 as u16);
         let dimensions = (map.width(), map.height());
 
@@ -351,18 +353,20 @@ impl GameLoop {
                 &mut buff,
                 "|{}",
                 Goto(margins.0 as u16, margins.1 as u16 + y as u16 + 1)
-            );
+            )?;
         }
 
         // Bottom border
-        write!(&mut buff, "+");
+        write!(&mut buff, "+")?;
         for _ in 0..dimensions.0 {
-            write!(&mut buff, "-");
+            write!(&mut buff, "-")?;
         }
-        println!("+");
+        write!(&mut buff, "+")?;
 
-        write!(&mut buff, "{}", Goto(1, 1));		
-        // out.flush().unwrap();
+        write!(&mut buff, "{}", Goto(1, 1))?;
+
+		write!(output, "{}", buff)?;
+        output.flush().unwrap();
 
         Ok(())
     }

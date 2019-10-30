@@ -36,6 +36,10 @@ impl Screen {
     pub fn size(&self) -> &Coord {
         &self.size
     }
+
+	pub fn frame_buffer_size(&self) -> usize {
+		(self.margins.0 + self.size.0) * (self.margins.1 + self.size.1)
+	}
 }
 
 #[derive(Copy, Clone)]

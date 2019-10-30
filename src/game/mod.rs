@@ -1,6 +1,9 @@
 use crate::game::game_loop::GameLoop;
 use crate::game::menu_loop::MenuLoop;
 use crate::utils::*;
+use std::thread;
+use std::time;
+use failure::Error;
 use std::io::{Stdout, Write};
 use termion::raw::RawTerminal;
 
@@ -9,7 +12,7 @@ mod menu_loop;
 
 pub trait Loop<'a> {
     fn init(screen: Screen) -> Self;
-    fn frame(&mut self, input: &mut termion::AsyncReader, out: &mut RawTerminal<Stdout>) -> Option<GameAction>;
+    fn frame(&mut self, input: &mut termion::AsyncReader, out: &mut RawTerminal<Stdout>) -> Result<GameAction, Error>;
 }
 
 pub enum GameState {
@@ -71,12 +74,35 @@ impl<'a> Game<'a> {
     }
 
     pub fn run(&mut self) {
-        while let Some(GameAction::Continue) = self
-            .game_loop
-            .frame(self.input, self.out)
-        {
-            looped_inc(&mut self.frame_counter);
-        }
+		loop {
+			// Timer!
+			let now = time::Instant::now();
+
+			let action  = match self.state {
+				GameState::Menu => self.menu_loop.frame(self.input, self.out),
+				GameState::Running => self.game_loop.frame(self.input, self.out),
+				GameState::Done => self.menu_loop.frame(self.input, self.out)
+			}.expect("Encountered error: ");
+			
+			match action {
+				GameAction::Continue => looped_inc(&mut self.frame_counter),
+				GameAction::NewGame => {
+					self.frame_counter = 0;
+					self.game_loop = GameLoop::init(self.screen.clone());
+					self.state = GameState::Running;
+				},
+				GameAction::Menu => self.state = GameState::Menu,
+				GameAction::Quit => break,
+			}
+
+			// TODO support separate DEBUG mode?
+			write!(self.out, "{}{:?}", termion::cursor::Goto(1, 1), now.elapsed());
+			self.out.flush().unwrap();
+
+			// Wait
+			thread::sleep(time::Duration::from_millis(30) - now.elapsed());
+		}
+		
 
         write!(self.out, "{}", termion::cursor::Show).unwrap();
     }

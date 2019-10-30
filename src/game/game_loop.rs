@@ -88,11 +88,8 @@ impl Loop<'_> for GameLoop {
         }
     }
 
-    fn frame(&mut self, input: &mut termion::AsyncReader, out: &mut RawTerminal<Stdout>) -> Option<GameAction> {
+    fn frame(&mut self, input: &mut termion::AsyncReader, out: &mut RawTerminal<Stdout>) -> Result<GameAction, Error> {
         let mut frame_state = FrameState::new(self.screen);
-
-        // Timer!
-        let now = time::Instant::now();
 
         frame_state.frame = self.frame;
         frame_state.events.clear();
@@ -100,25 +97,18 @@ impl Loop<'_> for GameLoop {
         self.handle_input(input, &mut frame_state.events);
         self.process_entities(&frame_state);
         let map = self.handle_collisions();
-        self.draw(out, map);
+        self.draw(out, map)?;
 
         if self.invaders.is_empty() {
             self.is_running = false;
         }
 
-        // TODO support separate DEBUG mode?
-        write!(out, "{}{:?}", Goto(1, 1), now.elapsed());
-        out.flush().unwrap();
-
 		crate::utils::looped_inc(&mut self.frame);
 		
-        // Wait
-        thread::sleep(time::Duration::from_millis(30) - now.elapsed());
-
         if self.is_running {
-            Some(GameAction::Continue)
+            Ok(GameAction::Continue)
         } else {
-            Some(GameAction::Menu)
+            Ok(GameAction::Menu)
         }
     }
 }
@@ -317,8 +307,7 @@ impl GameLoop {
 
 		// TODO Reuse buffer to avoid reallocating every frame
 		let margins = self.screen.margins();
-		let screen_size = self.screen.size();
-		let mut buff = String::with_capacity((margins.0 + screen_size.0) * (margins.1 + screen_size.1));
+		let mut buff = String::with_capacity(self.screen.frame_buffer_size());
 		let mut cursor = (margins.0 as u16, margins.1 as u16);
         let dimensions = (map.width(), map.height());
 

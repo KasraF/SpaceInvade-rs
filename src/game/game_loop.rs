@@ -6,8 +6,6 @@ use crate::game::GameAction;
 use failure::Error;
 use std::clone::Clone;
 use std::io::{Stdout, Write};
-use std::thread;
-use std::time;
 use termion::cursor::Goto;
 use termion::event::Key;
 use termion::input::TermRead;
@@ -100,7 +98,7 @@ impl Loop<'_> for GameLoop {
         self.draw(out, map)?;
 
         if self.invaders.is_empty() {
-            self.is_running = false;
+			return Ok(GameAction::EndGame);
         }
 
 		crate::utils::looped_inc(&mut self.frame);
@@ -108,6 +106,7 @@ impl Loop<'_> for GameLoop {
         if self.is_running {
             Ok(GameAction::Continue)
         } else {
+			self.is_running = true;
             Ok(GameAction::Menu)
         }
     }

@@ -25,17 +25,17 @@ pub enum MenuItem {
 impl MenuItem {
 	pub fn next(&self) -> Self {
 		match self {
-			MenuItem::NewGame => Self::Continue,
-			MenuItem::Continue => Self::Quit,
-			MenuItem::Quit => Self::NewGame,
+			MenuItem::Continue => Self::NewGame,
+			MenuItem::NewGame => Self::Quit,
+			MenuItem::Quit => Self::Continue,
 		}
 	}
 
 	pub fn previous(&self) -> Self {
 		match self {
-			MenuItem::NewGame => Self::Quit,
-			MenuItem::Continue => Self::NewGame,
-			MenuItem::Quit => Self::Continue,
+			MenuItem::Continue => Self::Quit,
+			MenuItem::NewGame => Self::Continue,
+			MenuItem::Quit => Self::NewGame,
 		}
 	}
 }
@@ -134,26 +134,28 @@ impl MenuLoop {
 
         // Write the menu items
         // TODO This is stupid. Please redo!
-        write!(&mut buff, "{}", Goto(margins.0, margins.1 + 2))?;
 
-        if self.selected == MenuItem::Continue {
-            write!(&mut buff, "\t> Continue{}", Goto(margins.0, margins.1 + 3))?;
-        } else {
-            write!(&mut buff, "\t  Continue{}", Goto(margins.0, margins.1 + 3))?;
-        }
+		let width = self.screen.size().0;
+		let bottom = self.screen.size().1;
+		let new_game_y = bottom / 2;
+		let continue_y = new_game_y - 1;
+		let quit_y = new_game_y + 1;
 
-        if self.selected == MenuItem::NewGame {
-            write!(&mut buff, "\t> New Game{}", Goto(margins.0, margins.1 + 4))?;
-        } else {
-            write!(&mut buff, "\t  New Game{}", Goto(margins.0, margins.1 + 4))?;
-        }
+		for y in 1..bottom {
+			write!(&mut buff, "|")?;
 
-        if self.selected == MenuItem::Quit {
-            write!(&mut buff, "\t> Quit{}", Goto(margins.0, margins.1 + 5))?;
-        } else {
-            write!(&mut buff, "\t  Quit{}", Goto(margins.0, margins.1 + 5))?;
-        }
+			if y == continue_y {
+				write!(&mut buff, "\t{} Continue", if self.selected == MenuItem::Continue {">"} else {" "})?;
+			} else if y == new_game_y {
+				write!(&mut buff, "\t{} New Game", if self.selected == MenuItem::NewGame {">"} else {" "})?;
+			} else if y == quit_y {
+				write!(&mut buff, "\t{} Quit", if self.selected == MenuItem::Quit {">"} else {" "})?;
+			}
 
+			write!(&mut buff, "{}|{}", Goto(margins.0 + 1 + width as u16, margins.1 + y as u16), Goto(margins.0, margins.1 + y as u16 + 1))?;
+		}
+		
+        
         // Contents
         // for y in 6..dimensions.1 {
         //     write!(&mut buff, "|{}|{}", Goto(margins.0 + dimensions.0, margins.1 + y as u16 + 1), Goto(margins.0, margins.1 + y as u16 + 1));

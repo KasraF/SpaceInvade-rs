@@ -23,6 +23,7 @@ pub enum GameState {
 
 pub enum GameAction {
     NewGame,
+	EndGame,
     Continue,
     Menu,
     Quit,
@@ -35,7 +36,6 @@ pub struct Game<'a> {
 
     // Game state info
     screen: Screen,
-    frame_counter: u8,
 
     // Loops for game states
     game_loop: GameLoop,
@@ -60,13 +60,11 @@ impl<'a> Game<'a> {
         let game_loop = GameLoop::init(screen.clone());
         let menu_loop = MenuLoop::init(screen.clone());
         let state = GameState::Menu;
-        let frame_counter = 0;
 
         Self {
             game_loop,
             menu_loop,
             state,
-            frame_counter,
             screen,
             out,
             input,
@@ -85,11 +83,16 @@ impl<'a> Game<'a> {
 			}.expect("Encountered error: ");
 			
 			match action {
-				GameAction::Continue => looped_inc(&mut self.frame_counter),
+				GameAction::Continue => {
+					self.state = GameState::Running;
+				},
 				GameAction::NewGame => {
-					self.frame_counter = 0;
 					self.game_loop = GameLoop::init(self.screen.clone());
 					self.state = GameState::Running;
+				},
+				GameAction::EndGame => {
+					self.game_loop = GameLoop::init(self.screen.clone());
+					self.state = GameState::Menu;
 				},
 				GameAction::Menu => self.state = GameState::Menu,
 				GameAction::Quit => break,
